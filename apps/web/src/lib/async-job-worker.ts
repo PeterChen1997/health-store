@@ -40,6 +40,7 @@ export type AsyncJobActiveChecker = {
 
 const ACTIVE_CHECKER_GLOBAL_KEY = "__healthStoreAsyncJobActiveChecker";
 const DEFAULT_ACTIVE_CHECK_INTERVAL_MS = 1000;
+const DEFAULT_MAX_JOB_ATTEMPTS = 3;
 
 export function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -145,11 +146,23 @@ export async function processNextJob({
     return false;
   }
 
+  const maxAttempts = parsePositiveInteger(
+    process.env.ASYNC_JOB_MAX_ATTEMPTS,
+    DEFAULT_MAX_JOB_ATTEMPTS
+  );
+
   const jobs = createJobService();
   const job = await jobs.claimNextQueued();
   if (!job) return false;
 
-  logger.log(`[worker] claimed ${job.type} job ${job.id}`);
+  logger.log(`[worker] claimed ${job.type} job ${job.id} (attempt ${job.attempts})`);
+
+  if (job.attempts > maxAttempts) {
+    await jobs.markError(job.id, new Error(`超过最大重试次数 (${maxAttempts})`));
+    logger.warn(`[worker] job ${job.id} exceeded max attempts (${maxAttempts}), skipping`);
+    return true;
+  }
+
   try {
     const result = await runJob(job, { runDocumentImportJob, runDocumentReparseJob });
     await jobs.markSuccess(job.id, result);

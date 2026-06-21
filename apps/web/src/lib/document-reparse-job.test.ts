@@ -67,6 +67,7 @@ describe("document reparse job", () => {
         db,
         uploadsDir: "/uploads-root",
         makeRunId: () => "run-1",
+        checkFileAccess: async () => {},
         parseImage: async (imagePath, runId) => {
           assert.equal(imagePath, "/uploads-root/doc-1.jpeg");
           assert.equal(runId, "run-1");
@@ -149,6 +150,7 @@ describe("document reparse job", () => {
           db,
           uploadsDir: "/uploads-root",
           makeRunId: () => "run-ocr-error",
+          checkFileAccess: async () => {},
           parseImage: async () => {
             throw new Error("OCR failed");
           },
@@ -176,6 +178,7 @@ describe("document reparse job", () => {
       {
         db,
         uploadsDir: "/uploads-root",
+        checkFileAccess: async () => {},
         parseImage: async (_imagePath, runId) => {
           assert.match(runId, /^[0-9a-f-]{36}$/);
           return {
@@ -211,6 +214,7 @@ describe("document reparse job", () => {
           db,
           uploadsDir: "/uploads-root",
           makeRunId: () => "run-llm-error",
+          checkFileAccess: async () => {},
           parseImage: async () => ({
             markdown: "ALT 42 U/L",
             analysis_text: "ALT 42 U/L",

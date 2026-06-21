@@ -29,6 +29,7 @@ type DocumentReparseJobDeps = {
   db?: typeof defaultDb;
   uploadsDir?: string;
   makeRunId?: () => string;
+  checkFileAccess?: (filePath: string) => Promise<void>;
   parseImage?: (imagePath: string, runId: string) => Promise<OcrResult>;
   runRepairStage?: (input: {
     runId: string;
@@ -78,6 +79,7 @@ export async function runDocumentReparseJob(
     db = defaultDb,
     uploadsDir = DEFAULT_UPLOADS_DIR,
     makeRunId = () => crypto.randomUUID(),
+    checkFileAccess = access,
     parseImage = defaultParseImage,
     runRepairStage = defaultRunRepairStage,
     extractFromOcr = defaultExtractFromOcr,
@@ -94,7 +96,7 @@ export async function runDocumentReparseJob(
 
   const filename = path.basename(doc.imagePath);
   const imagePath = path.join(uploadsDir, filename);
-  await access(imagePath).catch(() => {
+  await checkFileAccess(imagePath).catch(() => {
     throw new Error(`图片文件不存在: ${filename}`);
   });
   const runId = makeRunId();
