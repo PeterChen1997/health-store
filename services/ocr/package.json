@@ -1,0 +1,7 @@
+{
+  "name": "ocr",
+  "private": true,
+  "scripts": {
+    "dev": "cd $(dirname $0) && uv run uvicorn main:app --reload --port 8700"
+  }
+}

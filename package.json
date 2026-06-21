@@ -1,0 +1,26 @@
+{
+  "name": "health-store",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "concurrently -n web,ocr,worker -c cyan,green,magenta \"pnpm --filter web dev\" \"pnpm --filter ocr dev\" \"pnpm --filter web worker\"",
+    "dev:web": "pnpm --filter web dev",
+    "dev:ocr": "pnpm --filter ocr dev",
+    "dev:worker": "pnpm --filter web worker",
+    "build": "pnpm --filter web build",
+    "db:generate": "pnpm --filter web db:generate",
+    "db:migrate": "pnpm --filter web db:migrate",
+    "db:studio": "pnpm --filter web db:studio"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "pnpm": {
+    "overrides": {}
+  }
+}

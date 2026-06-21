@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1781927671142,
+      "tag": "0000_small_mariko_yashida",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1782025302302,
+      "tag": "0001_fair_old_lace",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782029830660,
+      "tag": "0002_chief_invaders",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1782031144781,
+      "tag": "0003_noisy_bucky",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1782041338938,
+      "tag": "0004_many_bloodstrike",
+      "breakpoints": true
+    }
+  ]
+}
