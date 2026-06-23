@@ -9,6 +9,8 @@ import { MeasurementsEditor } from "@/components/MeasurementsEditor";
 import { ReparseReview } from "@/components/ReparseReview";
 import { TranslateButton } from "@/components/TranslateButton";
 import { DeleteDocumentButton } from "@/components/DeleteDocumentButton";
+import { VectorizeButton } from "@/components/VectorizeButton";
+import { sqlite } from "@/db/index";
 import {
   getAdjacentDocumentIds,
   getDocumentDeleteRedirectHref,
@@ -58,6 +60,10 @@ export default async function DocumentDetailPage({
   ]);
   const adjacentDocuments = getAdjacentDocumentIds(navigationRows, doc.id);
   const deleteRedirectHref = getDocumentDeleteRedirectHref(adjacentDocuments);
+  const chunkCount = sqlite
+    .prepare("SELECT COUNT(*) FROM document_chunks WHERE document_id = ?")
+    .pluck()
+    .get(doc.id) as number;
 
   const imageSrc = `/api/uploads/${doc.imagePath.replace("uploads/", "")}`;
   const currentMeasurements = measurementRows.map((m) => ({
@@ -151,8 +157,13 @@ export default async function DocumentDetailPage({
 
           {doc.ocrMarkdown && (
             <details className="hs-card overflow-hidden">
-              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-[var(--hs-muted)] hover:text-[var(--hs-text)]">
-                OCR 识别文本
+              <summary className="flex cursor-pointer items-center justify-between px-4 py-3">
+                <span className="text-sm font-semibold text-[var(--hs-muted)] hover:text-[var(--hs-text)]">
+                  OCR 识别文本
+                </span>
+                <span className="ml-auto mr-2 shrink-0">
+                  <VectorizeButton documentId={doc.id} initialChunkCount={chunkCount} />
+                </span>
               </summary>
               <div className="border-t border-[var(--hs-border-soft)] p-4">
                 <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-[var(--hs-muted)]">

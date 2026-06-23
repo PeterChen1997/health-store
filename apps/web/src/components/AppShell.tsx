@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import {
   Activity,
   BarChart3,
+  Bell,
+  Boxes,
   FileText,
   HeartPulse,
   LayoutDashboard,
@@ -23,6 +25,7 @@ type NavItem = {
   label: string;
   icon: typeof LayoutDashboard;
   match?: (pathname: string) => boolean;
+  badge?: boolean;
 };
 
 const NAV_ITEMS: NavItem[] = [
@@ -37,6 +40,13 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/insights", label: "洞察", icon: Sparkles },
   { href: "/chat", label: "问答", icon: MessageCircle },
   { href: "/notes", label: "笔记", icon: NotebookPen },
+  { href: "/reminders", label: "提醒", icon: Bell, badge: true },
+  {
+    href: "/vectors",
+    label: "向量库",
+    icon: Boxes,
+    match: (path) => path.startsWith("/vectors"),
+  },
   { href: "/logs", label: "日志", icon: ScrollText },
 ];
 
@@ -55,6 +65,8 @@ function routeForSearch(query: string) {
   if (text.includes("笔记") || text.includes("症状") || text.includes("note")) return "/notes";
   if (text.includes("问答") || text.includes("聊天") || text.includes("assistant") || text.includes("ai")) return "/chat";
   if (text.includes("洞察") || text.includes("报告") || text.includes("insight")) return "/insights";
+  if (text.includes("提醒") || text.includes("复查") || text.includes("reminder")) return "/reminders";
+  if (text.includes("向量") || text.includes("语义") || text.includes("vector") || text.includes("rag")) return "/vectors";
   if (text.includes("日志") || text.includes("ocr") || text.includes("llm")) return "/logs";
   return "/documents";
 }
@@ -72,7 +84,7 @@ function Brand() {
   );
 }
 
-function NavList({ compact = false }: { compact?: boolean }) {
+function NavList({ compact = false, dueCount = 0 }: { compact?: boolean; dueCount?: number }) {
   const pathname = usePathname();
 
   return (
@@ -86,6 +98,7 @@ function NavList({ compact = false }: { compact?: boolean }) {
       {NAV_ITEMS.map((item) => {
         const active = isActive(item, pathname);
         const Icon = item.icon;
+        const showBadge = item.badge && dueCount > 0;
         return (
           <Link
             key={item.href}
@@ -101,6 +114,11 @@ function NavList({ compact = false }: { compact?: boolean }) {
           >
             <Icon className="size-4" aria-hidden="true" />
             {item.label}
+            {showBadge && (
+              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--hs-danger)] px-1 text-[10px] font-bold text-white">
+                {dueCount > 9 ? "9+" : dueCount}
+              </span>
+            )}
           </Link>
         );
       })}
@@ -111,6 +129,14 @@ function NavList({ compact = false }: { compact?: boolean }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [dueCount, setDueCount] = useState(0);
+
+  useEffect(() => {
+    fetch("/api/reminders/summary")
+      .then((r) => r.json() as Promise<{ dueOrOverdueCount: number }>)
+      .then((data) => setDueCount(data.dueOrOverdueCount ?? 0))
+      .catch(() => {});
+  }, []);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -126,7 +152,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className={DESKTOP_SIDEBAR_CLASS}>
         <Brand />
         <div className="mt-8">
-          <NavList />
+          <NavList dueCount={dueCount} />
         </div>
         <div className="mt-auto space-y-3 px-2">
           <div className="rounded-lg border border-[var(--hs-border)] bg-[var(--hs-bg-muted)] p-3">
@@ -168,7 +194,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           </div>
           <div className="lg:hidden">
-            <NavList compact />
+            <NavList compact dueCount={dueCount} />
           </div>
         </header>
 

@@ -29,6 +29,7 @@ const EXT_MIME: Record<string, string> = {
   ".webp": "image/webp",
   ".heic": "image/heic",
   ".bmp": "image/bmp",
+  ".pdf": "application/pdf",
 };
 
 export function getOcrAnalysisText(ocr: OcrResult): string {

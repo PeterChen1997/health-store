@@ -1,9 +1,12 @@
 import Link from "next/link";
-import { asc, count, desc, eq } from "drizzle-orm";
+import { asc, count, desc, eq, and, lte } from "drizzle-orm";
 import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  Bell,
+  CalendarClock,
+  CheckCircle2,
   Database,
   FileText,
   HeartPulse,
@@ -18,6 +21,7 @@ import {
   metricCatalog,
   notes,
   pipelineRuns,
+  reminders,
   wearableSamples,
 } from "@/db/schema";
 import {
@@ -66,6 +70,9 @@ function flagBadge(flag: string) {
 }
 
 export default async function HomeDashboard() {
+  const today = new Date().toISOString().slice(0, 10);
+  const soonDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
   const [
     documentCountRows,
     documentRows,
@@ -74,6 +81,7 @@ export default async function HomeDashboard() {
     noteRows,
     wearableRows,
     pipelineRows,
+    activeReminders,
   ] = await Promise.all([
       db.select({ value: count() }).from(documents),
       db
@@ -120,6 +128,12 @@ export default async function HomeDashboard() {
         .from(pipelineRuns)
         .orderBy(desc(pipelineRuns.createdAt))
         .limit(12),
+      db
+        .select()
+        .from(reminders)
+        .where(and(eq(reminders.status, "active"), lte(reminders.dueDate, soonDate)))
+        .orderBy(asc(reminders.dueDate))
+        .limit(5),
     ]);
 
   const documentCount = documentCountRows[0]?.value ?? 0;
@@ -131,6 +145,8 @@ export default async function HomeDashboard() {
   const metricTotal = measurementRows.length;
   const pipelineErrorCount = pipelineRows.filter((row) => row.status === "error").length;
   const latestWearable = wearableRows.at(0);
+  const overdueReminders = activeReminders.filter((r) => r.dueDate < today);
+  const dueSoonReminders = activeReminders.filter((r) => r.dueDate >= today);
 
   return (
     <div className="space-y-6">
@@ -165,6 +181,14 @@ export default async function HomeDashboard() {
           </Link>
         </div>
       </section>
+
+      {activeReminders.length > 0 && (
+        <ReminderAlert
+          overdueCount={overdueReminders.length}
+          reminders={activeReminders}
+          today={today}
+        />
+      )}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
@@ -460,6 +484,90 @@ function InsightCard({ abnormalMetrics }: { abnormalMetrics: number }) {
         </div>
       </div>
     </Link>
+  );
+}
+
+const REMINDER_KIND_LABEL: Record<string, string> = {
+  recheck: "复查随访",
+  annual_physical: "年度体检",
+  medication: "用药提醒",
+  custom: "自定义",
+};
+
+function ReminderAlert({
+  overdueCount,
+  reminders: items,
+  today,
+}: {
+  overdueCount: number;
+  reminders: Array<{ id: string; title: string; kind: string; dueDate: string }>;
+  today: string;
+}) {
+  return (
+    <section className="rounded-xl border border-[#edd8d4] bg-[var(--hs-danger-soft)] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Bell className="size-4 text-[var(--hs-danger)]" aria-hidden="true" />
+          <p className="text-sm font-semibold text-[var(--hs-danger)]">
+            {overdueCount > 0
+              ? `${overdueCount} 条提醒已逾期，${items.length - overdueCount} 条即将到期`
+              : `${items.length} 条提醒即将到期（14 天内）`}
+          </p>
+        </div>
+        <Link
+          href="/reminders"
+          className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--hs-danger)]"
+        >
+          查看全部
+          <ArrowRight className="size-3.5" aria-hidden="true" />
+        </Link>
+      </div>
+      <div className="space-y-2">
+        {items.map((r) => {
+          const isOverdue = r.dueDate < today;
+          const diff = Math.ceil(
+            (new Date(r.dueDate).getTime() - new Date(today).getTime()) / 86400000,
+          );
+          const dateLabel = isOverdue
+            ? `已逾期 ${Math.abs(diff)} 天`
+            : diff === 0
+              ? "今天到期"
+              : `${diff} 天后到期`;
+          return (
+            <div
+              key={r.id}
+              className="flex items-center gap-3 rounded-lg bg-white/60 px-3 py-2"
+            >
+              <CalendarClock
+                className={cn("size-3.5 shrink-0", isOverdue ? "text-[var(--hs-danger)]" : "text-[var(--hs-warning)]")}
+                aria-hidden="true"
+              />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--hs-text)]">
+                {r.title}
+              </span>
+              <span className="shrink-0 text-xs text-[var(--hs-muted)]">
+                {REMINDER_KIND_LABEL[r.kind] ?? "自定义"}
+              </span>
+              <span
+                className={cn(
+                  "shrink-0 text-xs font-semibold",
+                  isOverdue ? "text-[var(--hs-danger)]" : "text-[var(--hs-warning)]",
+                )}
+              >
+                {dateLabel}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <Link
+        href="/reminders"
+        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-[var(--hs-danger)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--hs-danger)] transition-colors hover:bg-[var(--hs-danger-soft)]"
+      >
+        <CheckCircle2 className="size-3.5" aria-hidden="true" />
+        前往提醒管理
+      </Link>
+    </section>
   );
 }
 

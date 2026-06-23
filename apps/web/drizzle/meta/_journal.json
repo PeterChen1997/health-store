@@ -36,6 +36,13 @@
       "when": 1782041338938,
       "tag": "0004_many_bloodstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1782087835262,
+      "tag": "0005_steep_spirit",
+      "breakpoints": true
     }
   ]
 }

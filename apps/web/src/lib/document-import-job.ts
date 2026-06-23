@@ -7,6 +7,7 @@ import { extractFromOcr as defaultExtractFromOcr, type ExtractionResult } from "
 import { applyOcrDerivedMeasurementFlags } from "./measurement-flags";
 import { recordPipelineRun as defaultRecordPipelineRun, type PipelineRunInput } from "./pipeline-log";
 import { runRepairStage as defaultRunRepairStage, type RepairStageResult } from "./repair";
+import { indexDocument } from "./index-document-chunks";
 
 const DEFAULT_UPLOADS_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), "../../data/uploads");
 
@@ -212,6 +213,10 @@ export async function runDocumentImportJob(
     ocrMarkdown,
     ocrJson,
   });
+
+  indexDocument(input.documentId).catch((err) =>
+    console.error("[index-document] 向量索引失败，可稍后通过回填脚本恢复:", err)
+  );
 
   const resolve = resolveMetric ?? ((rawName: string) => resolveMetricFromDb(db, rawName));
   const measurementRows = await Promise.all(

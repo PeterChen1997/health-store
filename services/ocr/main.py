@@ -11,6 +11,7 @@ import io
 import logging
 import os
 import re
+import math
 import time
 import tempfile
 import uuid
@@ -264,6 +265,154 @@ def _parse_vl_output(output: list[Any]) -> dict[str, Any]:
     }
 
 
+def _parse_pdf_pages(raw: bytes, mode: str) -> dict[str, Any]:
+    """将 PDF 每页渲染为 JPEG 并逐页 OCR，返回拼接结果。"""
+    import fitz  # noqa: PLC0415  (PyMuPDF)
+
+    doc = fitz.open(stream=raw, filetype="pdf")
+    max_edge = int(os.environ.get("OCR_MAX_IMAGE_EDGE", "2200"))
+    pipeline = get_pipeline(mode)
+    all_markdowns: list[str] = []
+    all_json_data: list[Any] = []
+    all_blocks: list[Any] = []
+
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        mat = fitz.Matrix(200 / 72, 200 / 72)  # ~200 DPI
+        pix = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
+        img_bytes = pix.tobytes("jpeg")
+
+        try:
+            from PIL import Image  # noqa: PLC0415
+            img = Image.open(io.BytesIO(img_bytes))
+            w, h = img.size
+            if max(w, h) > max_edge:
+                scale = max_edge / max(w, h)
+                img = img.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=90)
+                img_bytes = buf.getvalue()
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("PDF page %d resize failed: %s", page_num + 1, exc)
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp.write(img_bytes)
+            tmp_path = tmp.name
+
+        try:
+            output = list(pipeline.predict(tmp_path))
+            try:
+                parsed = _parse_vl_output(output) if mode == "vl" else _parse_ppocr_output(output)
+            except VlMarkdownMissingError:
+                parsed = {"markdown": "", "json_data": [], "blocks": []}
+
+            page_markdown = parsed.get("markdown", "").strip()
+            label = f"--- 第 {page_num + 1} 页 ---"
+            all_markdowns.append(f"{label}\n\n{page_markdown}" if page_markdown else f"{label}（无识别文本）")
+            json_data = parsed.get("json_data")
+            if isinstance(json_data, list):
+                all_json_data.extend(json_data)
+            blocks = parsed.get("blocks")
+            if isinstance(blocks, list):
+                all_blocks.extend(blocks)
+        finally:
+            os.unlink(tmp_path)
+
+    doc.close()
+    combined = "\n\n".join(all_markdowns)
+    return {
+        "markdown": combined,
+        "analysis_text": combined,
+        "json_data": all_json_data,
+        "raw_text": combined,
+        "blocks": all_blocks,
+    }
+
+
+def _find_overlap(a: list[str], b: list[str], max_check: int = 30) -> int:
+    """找到 a 的尾部与 b 的头部的最长公共非空行序列。"""
+    limit = min(len(a), len(b), max_check)
+    for length in range(limit, 0, -1):
+        tail = [ln.strip() for ln in a[-length:] if ln.strip()]
+        head = [ln.strip() for ln in b[:length] if ln.strip()]
+        if tail and tail == head:
+            return length
+    return 0
+
+
+def _merge_tile_markdowns(markdowns: list[str]) -> str:
+    """合并多块 tile OCR 结果，去除重叠区域的重复行。"""
+    if not markdowns:
+        return ""
+    result = markdowns[0].splitlines()
+    for md in markdowns[1:]:
+        lines = md.splitlines()
+        skip = _find_overlap(result, lines)
+        result.extend(lines[skip:])
+    return "\n".join(result)
+
+
+def _tile_and_ocr(raw: bytes, n_tiles: int, mode: str, pipeline: Any) -> dict[str, Any]:
+    """将图片沿最长边切分为 n_tiles 块，每块单独 OCR 后拼接，保留各块原始分辨率细节。"""
+    from PIL import Image, ImageOps  # noqa: PLC0415
+
+    img = Image.open(io.BytesIO(raw))
+    img = ImageOps.exif_transpose(img)
+    w, h = img.size
+    max_edge = int(os.environ.get("OCR_MAX_IMAGE_EDGE", "2200"))
+    overlap = 0.15
+    # 沿最长边切割：竖版按行，横版按列
+    tile_by_col = w > h
+    dim = w if tile_by_col else h
+    stride = dim / n_tiles
+
+    all_markdowns: list[str] = []
+    all_json_data: list[Any] = []
+    all_blocks: list[Any] = []
+
+    for i in range(n_tiles):
+        d0 = int(i * stride)
+        d1 = min(dim, int(i * stride + stride * (1 + overlap)))
+        tile = img.crop((d0, 0, d1, h) if tile_by_col else (0, d0, w, d1))
+
+        tw, th = tile.size
+        if max(tw, th) > max_edge:
+            scale = max_edge / max(tw, th)
+            tile = tile.resize((round(tw * scale), round(th * scale)), Image.LANCZOS)
+
+        buf = io.BytesIO()
+        tile.save(buf, format="JPEG", quality=90)
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp.write(buf.getvalue())
+            tmp_path = tmp.name
+
+        try:
+            output = list(pipeline.predict(tmp_path))
+            try:
+                parsed = _parse_vl_output(output) if mode == "vl" else _parse_ppocr_output(output)
+            except VlMarkdownMissingError:
+                parsed = {"markdown": "", "json_data": [], "blocks": []}
+            all_markdowns.append(parsed.get("markdown", "").strip())
+            tile_json = parsed.get("json_data")
+            if isinstance(tile_json, list):
+                all_json_data.extend(tile_json)
+            tile_blocks = parsed.get("blocks")
+            if isinstance(tile_blocks, list):
+                all_blocks.extend(tile_blocks)
+        finally:
+            os.unlink(tmp_path)
+
+    combined = _merge_tile_markdowns(all_markdowns)
+    return {
+        "markdown": combined,
+        "analysis_text": combined,
+        "json_data": all_json_data,
+        "raw_text": combined,
+        "blocks": all_blocks,
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     mode = get_analysis_mode()
@@ -286,21 +435,74 @@ async def parse_image(
     ext = os.path.splitext(file.filename or "")[-1].lower()
     is_image_type = file.content_type and file.content_type.startswith("image/")
     is_image_ext = ext in image_exts
-    if not is_image_type and not is_image_ext:
+    is_pdf = ext == ".pdf" or file.content_type == "application/pdf"
+    if not is_image_type and not is_image_ext and not is_pdf:
         raise HTTPException(
             status_code=400,
-            detail=f"只接受图片文件，收到 content_type={file.content_type!r} ext={ext!r}",
+            detail=f"只接受图片或 PDF 文件，收到 content_type={file.content_type!r} ext={ext!r}",
         )
 
     raw = await file.read()
-    suffix = os.path.splitext(file.filename or "img.jpg")[-1] or ".jpg"
 
     if mode not in _pipeline_ready_modes:
         raise HTTPException(status_code=503, detail="OCR pipeline is still warming")
 
-    # 大图降采样：最长边超过阈值时用 Pillow 按比例缩放，显著缩短 CPU 推理时间。
-    # 失败时静默回退到原始字节，不中断 OCR。
+    # PDF 分支：逐页渲染 + OCR，结果拼接返回
+    if is_pdf:
+        try:
+            parsed = await asyncio.to_thread(_parse_pdf_pages, raw, mode)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"PDF 解析失败: {exc}") from exc
+        parsed.update({
+            "mode": mode,
+            "run_id": current_run_id,
+            "timing": {
+                "predict_ms": None,
+                "total_ms": round((time.perf_counter() - started) * 1000),
+                "resized": False,
+            },
+        })
+        return parsed
+
+    suffix = os.path.splitext(file.filename or "img.jpg")[-1] or ".jpg"
     max_edge = int(os.environ.get("OCR_MAX_IMAGE_EDGE", "2200"))
+    pipeline = get_pipeline(mode)
+
+    # 最长边超过 max_edge 时切块：竖版按行、横版按列，每块独立 OCR 保留细节。
+    n_tiles = 1
+    try:
+        from PIL import Image, ImageOps  # noqa: PLC0415
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            probe = Image.open(io.BytesIO(raw))
+        probe = ImageOps.exif_transpose(probe)
+        longest = max(probe.size)
+        if longest > max_edge:
+            n_tiles = min(math.ceil(longest / max_edge), 4)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("图片维度检测失败，回退到单图模式: %s", exc)
+
+    if n_tiles >= 2:
+        predict_started = time.perf_counter()
+        try:
+            parsed = await asyncio.to_thread(_tile_and_ocr, raw, n_tiles, mode, pipeline)
+        except VlMarkdownMissingError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"Tiling OCR 失败: {exc}") from exc
+        parsed.update({
+            "mode": mode,
+            "run_id": current_run_id,
+            "timing": {
+                "predict_ms": round((time.perf_counter() - predict_started) * 1000),
+                "total_ms": round((time.perf_counter() - started) * 1000),
+                "resized": False,
+                "tiled": n_tiles,
+            },
+        })
+        return parsed
+
+    # 单图：最长边超限时等比缩放后整图 OCR
     resized = False
     try:
         from PIL import Image, ImageOps  # noqa: PLC0415
@@ -312,8 +514,7 @@ async def parse_image(
         longest = max(w, h)
         if longest > max_edge:
             scale = max_edge / longest
-            new_size = (round(w * scale), round(h * scale))
-            img = img.resize(new_size, Image.LANCZOS)
+            img = img.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=90)
             raw = buf.getvalue()
@@ -327,7 +528,6 @@ async def parse_image(
         tmp_path = tmp.name
 
     try:
-        pipeline = get_pipeline(mode)
         predict_started = time.perf_counter()
         output = list(pipeline.predict(tmp_path))
         predict_ms = round((time.perf_counter() - predict_started) * 1000)

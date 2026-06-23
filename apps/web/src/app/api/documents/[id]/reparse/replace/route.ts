@@ -3,6 +3,7 @@ import { db } from "@/db/index";
 import { documents, measurements } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { prepareReplacementRows, ReparseReplacementSchema } from "@/lib/reparse-preview";
+import { indexDocument } from "@/lib/index-document-chunks";
 
 export async function POST(
   req: NextRequest,
@@ -37,6 +38,10 @@ export async function POST(
       tx.insert(measurements).values(measurementRows).run();
     }
   });
+
+  indexDocument(id).catch((err) =>
+    console.error("[index-document] reparse 后向量索引失败，可稍后通过回填脚本恢复:", err)
+  );
 
   return Response.json({
     id,

@@ -14,6 +14,15 @@ export const documents = sqliteTable("documents", {
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 
+// OCR 文本分块，与 vec_chunks 虚拟表 rowid 对齐（integer PK = rowid）
+export const documentChunks = sqliteTable("document_chunks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  documentId: text("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  chunkIndex: integer("chunk_index").notNull(),
+  text: text("text").notNull(),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
 // 标准指标词典
 export const metricCatalog = sqliteTable("metric_catalog", {
   id: text("id").primaryKey(),
@@ -153,4 +162,18 @@ export const insights = sqliteTable("insights", {
   content: text("content").notNull(),
   sourceRefs: text("source_refs"), // JSON string[] - document_ids / measurement_ids
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// 复查与体检提醒
+export const reminders = sqliteTable("reminders", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  kind: text("kind").notNull(), // recheck | annual_physical | medication | custom
+  dueDate: text("due_date").notNull(), // ISO date YYYY-MM-DD
+  relatedMetricId: text("related_metric_id").references(() => metricCatalog.id),
+  relatedDocumentId: text("related_document_id").references(() => documents.id, { onDelete: "set null" }),
+  note: text("note"),
+  status: text("status").notNull().default("active"), // active | done | dismissed
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  completedAt: text("completed_at"),
 });

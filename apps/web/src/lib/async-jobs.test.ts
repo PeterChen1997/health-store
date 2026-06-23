@@ -199,7 +199,7 @@ describe("async jobs", () => {
     assert.ok(rows);
   });
 
-  it("requeues an error job for retry without resetting attempts", async () => {
+  it("requeues an error job for retry and resets attempts to 0", async () => {
     const service = createAsyncJobService({
       db: makeTestDb(),
       makeId: () => "job-retry",
@@ -227,11 +227,11 @@ describe("async jobs", () => {
     assert.equal(retried.result, null);
     assert.equal(retried.startedAt, null);
     assert.equal(retried.finishedAt, null);
-    assert.equal(retried.attempts, 1);
+    assert.equal(retried.attempts, 0);
     assert.equal(retried.updatedAt, "2026-06-21T10:03:00.000Z");
 
     const claimedAgain = await service.claimNextQueued();
     assert.equal(claimedAgain?.id, "job-retry");
-    assert.equal(claimedAgain?.attempts, 2);
+    assert.equal(claimedAgain?.attempts, 1);
   });
 });

@@ -246,6 +246,7 @@ export function createAsyncJobService({
       .update(asyncJobs)
       .set({
         status: "queued",
+        attempts: 0,
         result: null,
         error: null,
         startedAt: null,

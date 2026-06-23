@@ -10,7 +10,32 @@ type Props = {
   alt: string;
 };
 
+function PdfViewer({ src }: { src: string }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-[var(--hs-border)] bg-white">
+      <iframe
+        src={src}
+        title="PDF 原件"
+        className="h-[600px] w-full"
+      />
+      <div className="border-t border-[var(--hs-border-soft)] px-4 py-2">
+        <a
+          href={src}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-semibold text-[var(--hs-primary-strong)] hover:underline"
+        >
+          在新标签页中打开 PDF
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export function ImageViewer({ src, alt }: Props) {
+  if (src.toLowerCase().split("?").at(0)?.endsWith(".pdf")) {
+    return <PdfViewer src={src} />;
+  }
   const [open, setOpen] = useState(false);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
