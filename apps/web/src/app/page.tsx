@@ -70,8 +70,9 @@ function flagBadge(flag: string) {
 }
 
 export default async function HomeDashboard() {
-  const today = new Date().toISOString().slice(0, 10);
-  const soonDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const soonDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const [
     documentCountRows,
@@ -147,7 +148,6 @@ export default async function HomeDashboard() {
   const pipelineErrorCount = pipelineRows.filter((row) => row.status === "error").length;
   const latestWearable = wearableRows.at(0);
   const overdueReminders = activeReminders.filter((r) => r.dueDate < today);
-  const dueSoonReminders = activeReminders.filter((r) => r.dueDate >= today);
 
   return (
     <div className="space-y-6">
