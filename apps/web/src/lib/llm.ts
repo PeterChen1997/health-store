@@ -48,6 +48,24 @@ export function createLanguageModel(settings = getLlmSettings()) {
   return provider(settings.model);
 }
 
+// 从模型输出中尽力抠出 JSON object：优先代码块，其次最外层 {...}。
+export function extractJsonObject(text: string): string {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/u);
+  const candidate = (fenced ? fenced.at(1) : text)?.trim() ?? "";
+
+  // 已是纯 JSON
+  if (candidate.startsWith("{")) return candidate;
+
+  // 模型在 JSON 前后夹带了说明文字时，截取最外层大括号区间
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    return candidate.slice(start, end + 1);
+  }
+
+  return candidate;
+}
+
 // Zod schema 注入 prompt → provider 无关的结构化输出
 export async function generateStructured<T>(
   schema: ZodType<T>,
@@ -62,9 +80,7 @@ export async function generateStructured<T>(
     prompt: fullPrompt,
   });
 
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/u);
-  const raw = (fenced ? fenced.at(1) : text)?.trim() ?? "";
-  return schema.parse(JSON.parse(raw));
+  return schema.parse(JSON.parse(extractJsonObject(text)));
 }
 
 export { generateText, streamText };

@@ -10,6 +10,8 @@ type AsyncJobServiceForWorker = {
   claimNextQueued: () => Promise<AsyncJobRecord | null>;
   markSuccess: (id: string, result: unknown) => Promise<AsyncJobRecord>;
   markError: (id: string, error: unknown) => Promise<AsyncJobRecord>;
+  requeueForRetry: (id: string) => Promise<AsyncJobRecord>;
+  requeueStalledRunning: (maxRunningMs: number) => Promise<number>;
 };
 
 type WorkerLogger = Pick<Console, "log" | "warn" | "error">;
@@ -41,6 +43,9 @@ export type AsyncJobActiveChecker = {
 const ACTIVE_CHECKER_GLOBAL_KEY = "__healthStoreAsyncJobActiveChecker";
 const DEFAULT_ACTIVE_CHECK_INTERVAL_MS = 1000;
 const DEFAULT_MAX_JOB_ATTEMPTS = 3;
+// running 超过该时长视为卡死（进程崩溃残留），退回 queue。默认 10 分钟，
+// 远大于正常 OCR+LLM 耗时，避免误回收正在执行的任务。
+const DEFAULT_STALE_RUNNING_MS = 10 * 60 * 1000;
 
 export function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -150,8 +155,19 @@ export async function processNextJob({
     process.env.ASYNC_JOB_MAX_ATTEMPTS,
     DEFAULT_MAX_JOB_ATTEMPTS
   );
+  const staleRunningMs = parsePositiveInteger(
+    process.env.ASYNC_JOB_STALE_RUNNING_MS,
+    DEFAULT_STALE_RUNNING_MS
+  );
 
   const jobs = createJobService();
+
+  // 先回收上次进程崩溃残留的 running 任务，使其重新可被认领。
+  const requeued = await jobs.requeueStalledRunning(staleRunningMs);
+  if (requeued > 0) {
+    logger.warn(`[worker] requeued ${requeued} stalled running job(s)`);
+  }
+
   const job = await jobs.claimNextQueued();
   if (!job) return false;
 
@@ -168,8 +184,16 @@ export async function processNextJob({
     await jobs.markSuccess(job.id, result);
     logger.log(`[worker] completed job ${job.id}`);
   } catch (error) {
-    await jobs.markError(job.id, error);
-    logger.error(`[worker] failed job ${job.id}: ${serializeError(error)}`);
+    // 还在重试预算内则重新入队，耗尽后才置为最终失败。
+    if (job.attempts < maxAttempts) {
+      await jobs.requeueForRetry(job.id);
+      logger.warn(
+        `[worker] job ${job.id} failed (attempt ${job.attempts}/${maxAttempts}), requeued: ${serializeError(error)}`
+      );
+    } else {
+      await jobs.markError(job.id, error);
+      logger.error(`[worker] failed job ${job.id} after ${job.attempts} attempts: ${serializeError(error)}`);
+    }
   }
 
   return true;

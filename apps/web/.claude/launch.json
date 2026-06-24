@@ -4,9 +4,9 @@
     {
       "name": "health-store-web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 3000,
-      "autoPort": false
+      "runtimeArgs": ["run", "dev", "--port", "3100"],
+      "port": 3100,
+      "autoPort": true
     }
   ]
 }

@@ -33,9 +33,8 @@ function PdfViewer({ src }: { src: string }) {
 }
 
 export function ImageViewer({ src, alt }: Props) {
-  if (src.toLowerCase().split("?").at(0)?.endsWith(".pdf")) {
-    return <PdfViewer src={src} />;
-  }
+  // 注意：Hooks 必须无条件调用，PDF 分支的早返回放在所有 Hook 之后。
+  const isPdf = src.toLowerCase().split("?").at(0)?.endsWith(".pdf") ?? false;
   const [open, setOpen] = useState(false);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -108,6 +107,8 @@ export function ImageViewer({ src, alt }: Props) {
   const zoom = (delta: number) => {
     setScale((s) => Math.min(10, Math.max(0.5, s + delta)));
   };
+
+  if (isPdf) return <PdfViewer src={src} />;
 
   return (
     <>
