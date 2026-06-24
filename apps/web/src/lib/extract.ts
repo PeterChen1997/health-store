@@ -7,6 +7,7 @@ import { z } from "zod";
 import { generateStructured } from "./llm";
 import { db } from "@/db/index";
 import { metricCatalog } from "@/db/schema";
+import { matchMetricId, type MetricCatalogEntry } from "./metric-match";
 
 // OCR → LLM 抽取的原始 schema
 const RawMeasurementSchema = z.object({
@@ -45,13 +46,11 @@ ${ocrText}`
   );
 }
 
-// 指标归一：raw_name → metric_catalog.id
-// 策略：alias 精确/模糊匹配，匹配不上则 null
-type CatalogEntry = { id: string; standardName: string; aliases: string[] };
-let _catalog: CatalogEntry[] = [];
+// 指标归一：raw_name → metric_catalog.id（评分式匹配，见 metric-match.ts）
+let _catalog: MetricCatalogEntry[] = [];
 let _catalogLoaded = false;
 
-async function getCatalog(): Promise<CatalogEntry[]> {
+async function getCatalog(): Promise<MetricCatalogEntry[]> {
   if (_catalogLoaded) return _catalog;
   const rows = await db.select({
     id: metricCatalog.id,
@@ -69,13 +68,5 @@ async function getCatalog(): Promise<CatalogEntry[]> {
 
 export async function normalizeMetric(rawName: string): Promise<string | null> {
   const catalog = await getCatalog();
-  const needle = rawName.trim().toUpperCase();
-
-  for (const entry of catalog) {
-    const targets = [entry.standardName, ...entry.aliases].map((s) => s.toUpperCase());
-    if (targets.some((t) => t === needle || needle.includes(t) || t.includes(needle))) {
-      return entry.id;
-    }
-  }
-  return null;
+  return matchMetricId(rawName, catalog);
 }

@@ -7,8 +7,9 @@ import { embedQuery } from "@/lib/embedding";
 import { retrieveRelevantChunks } from "@/lib/index-document-chunks";
 
 async function buildHealthContext(): Promise<string> {
-  const rows = await db
+  const allRows = await db
     .select({
+      metricId: measurements.metricId,
       rawName: measurements.rawName,
       value: measurements.value,
       unit: measurements.unit,
@@ -20,6 +21,14 @@ async function buildHealthContext(): Promise<string> {
     .from(measurements)
     .leftJoin(metricCatalog, eq(measurements.metricId, metricCatalog.id))
     .orderBy(asc(measurements.measuredAt));
+
+  // 收敛到"每个指标最新一次"，避免历史累积把上下文撑爆。
+  // allRows 按 measuredAt 升序，后写入者即最新。
+  const latestByMetric = new Map<string, (typeof allRows)[number]>();
+  for (const row of allRows) {
+    latestByMetric.set(row.metricId ?? `raw:${row.rawName}`, row);
+  }
+  const rows = Array.from(latestByMetric.values());
 
   const docRows = await db
     .select({ institution: documents.institution, measuredAt: documents.measuredAt, documentType: documents.documentType })

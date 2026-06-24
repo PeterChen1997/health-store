@@ -41,6 +41,8 @@ describe("async job worker", () => {
         },
         markSuccess: async () => makeJob({ status: "success" }),
         markError: async () => makeJob({ status: "error" }),
+        requeueForRetry: async () => makeJob({ status: "queued" }),
+        requeueStalledRunning: async () => 0,
       }),
       logger: {
         log: () => undefined,
@@ -65,6 +67,8 @@ describe("async job worker", () => {
           return makeJob({ status: "success", result });
         },
         markError: async () => makeJob({ status: "error" }),
+        requeueForRetry: async () => makeJob({ status: "queued" }),
+        requeueStalledRunning: async () => 0,
       }),
       runDocumentImportJob: async () => ({ id: "doc-1" }),
       logger: {
@@ -76,6 +80,71 @@ describe("async job worker", () => {
 
     assert.equal(processed, true);
     assert.equal(markedSuccess, true);
+  });
+
+  it("requeues a failed job while attempts remain, marks error once exhausted", async () => {
+    let requeued = 0;
+    let markedError = 0;
+
+    const makeService = (attempts: number) => () => ({
+      claimNextQueued: async () => makeJob({ attempts }),
+      markSuccess: async () => makeJob({ status: "success" }),
+      markError: async () => {
+        markedError += 1;
+        return makeJob({ status: "error" });
+      },
+      requeueForRetry: async () => {
+        requeued += 1;
+        return makeJob({ status: "queued" });
+      },
+      requeueStalledRunning: async () => 0,
+    });
+
+    const failingRun = async () => {
+      throw new Error("boom");
+    };
+    const silentLogger = { log: () => undefined, warn: () => undefined, error: () => undefined };
+
+    // attempts=1 < max(3) → 重新入队
+    await processNextJob({
+      checkOcrReady: async () => true,
+      createJobService: makeService(1),
+      runDocumentImportJob: failingRun,
+      logger: silentLogger,
+    });
+    assert.equal(requeued, 1);
+    assert.equal(markedError, 0);
+
+    // attempts=3 == max → 最终失败
+    await processNextJob({
+      checkOcrReady: async () => true,
+      createJobService: makeService(3),
+      runDocumentImportJob: failingRun,
+      logger: silentLogger,
+    });
+    assert.equal(requeued, 1);
+    assert.equal(markedError, 1);
+  });
+
+  it("requeues stalled running jobs before claiming", async () => {
+    let requeueArg: number | null = null;
+    await processNextJob({
+      checkOcrReady: async () => true,
+      createJobService: () => ({
+        claimNextQueued: async () => null,
+        markSuccess: async () => makeJob({ status: "success" }),
+        markError: async () => makeJob({ status: "error" }),
+        requeueForRetry: async () => makeJob({ status: "queued" }),
+        requeueStalledRunning: async (ms) => {
+          requeueArg = ms;
+          return 2;
+        },
+      }),
+      logger: { log: () => undefined, warn: () => undefined, error: () => undefined },
+    });
+
+    assert.equal(typeof requeueArg, "number");
+    assert.ok((requeueArg as unknown as number) > 0);
   });
 
   it("actively checks on startup and every interval until the queue is idle", async () => {

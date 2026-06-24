@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { db as defaultDb } from "@/db/index";
 import { asyncJobs } from "@/db/schema";
 
@@ -236,6 +236,53 @@ export function createAsyncJobService({
     return job;
   }
 
+  // 任务执行失败但仍在重试预算内时，重新入队（保留 attempts，下次认领会再 +1）。
+  async function requeueForRetry(id: string): Promise<AsyncJobRecord> {
+    const timestamp = now().toISOString();
+    await db
+      .update(asyncJobs)
+      .set({
+        status: "queued",
+        error: null,
+        startedAt: null,
+        updatedAt: timestamp,
+      })
+      .where(eq(asyncJobs.id, id));
+
+    const job = await getJob(id);
+    if (!job) throw new Error(`async job ${id} was not found after requeue`);
+    return job;
+  }
+
+  // 回收"卡死"的任务：进程在处理中途崩溃会让任务永久停在 running，
+  // 这里把 startedAt 早于阈值的 running 任务退回 queued，使其能被重新认领。
+  async function requeueStalledRunning(maxRunningMs: number): Promise<number> {
+    const cutoff = new Date(now().getTime() - maxRunningMs).toISOString();
+    const stalled = await db
+      .select({ id: asyncJobs.id })
+      .from(asyncJobs)
+      .where(and(eq(asyncJobs.status, "running"), lt(asyncJobs.startedAt, cutoff)));
+
+    if (stalled.length === 0) return 0;
+
+    const timestamp = now().toISOString();
+    await db
+      .update(asyncJobs)
+      .set({ status: "queued", startedAt: null, updatedAt: timestamp })
+      .where(
+        and(
+          eq(asyncJobs.status, "running"),
+          lt(asyncJobs.startedAt, cutoff),
+          inArray(
+            asyncJobs.id,
+            stalled.map((row) => row.id)
+          )
+        )
+      );
+
+    return stalled.length;
+  }
+
   async function retryFailed(id: string): Promise<AsyncJobRecord> {
     const job = await getJob(id);
     if (!job) throw new Error(`async job ${id} was not found`);
@@ -267,6 +314,8 @@ export function createAsyncJobService({
     claimNextQueued,
     markSuccess,
     markError,
+    requeueForRetry,
+    requeueStalledRunning,
     retryFailed,
   };
 }

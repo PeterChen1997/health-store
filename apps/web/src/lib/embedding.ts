@@ -15,6 +15,18 @@ function createEmbeddingModel() {
   return google.textEmbeddingModel("gemini-embedding-2");
 }
 
+// 向量入库表 vec_chunks 的维度是固定的（float[1536]）。若模型返回的维度
+// 与之不一致，写入/检索会静默错位，这里提前抛出明确错误。
+function assertDim(embedding: number[]): number[] {
+  if (embedding.length !== EMBEDDING_DIM) {
+    throw new Error(
+      `embedding 维度不符：期望 ${EMBEDDING_DIM}，实际 ${embedding.length}。` +
+        "请确认 EMBEDDING_DIM 与向量表 vec_chunks 的维度一致。"
+    );
+  }
+  return embedding;
+}
+
 export async function embedDocuments(texts: string[]): Promise<number[][]> {
   const { embeddings } = await embedMany({
     model: createEmbeddingModel(),
@@ -26,6 +38,7 @@ export async function embedDocuments(texts: string[]): Promise<number[][]> {
       },
     },
   });
+  embeddings.forEach(assertDim);
   return embeddings;
 }
 
@@ -40,5 +53,5 @@ export async function embedQuery(text: string): Promise<number[]> {
       },
     },
   });
-  return embedding;
+  return assertDim(embedding);
 }

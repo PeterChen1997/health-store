@@ -113,7 +113,8 @@ export default async function HomeDashboard() {
           refHigh: metricCatalog.refHigh,
         })
         .from(measurements)
-        .leftJoin(metricCatalog, eq(measurements.metricId, metricCatalog.id)),
+        .leftJoin(metricCatalog, eq(measurements.metricId, metricCatalog.id))
+        .orderBy(asc(measurements.measuredAt)),
       db.select({ value: count() }).from(notes),
       db.select().from(notes).orderBy(desc(notes.createdAt)).limit(3),
       db.select().from(wearableSamples).orderBy(desc(wearableSamples.ts)).limit(6),

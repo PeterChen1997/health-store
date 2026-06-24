@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, BellOff, CalendarClock, CheckCircle2, PlusCircle, Trash2 } from "lucide-react";
+import { Bell, BellOff, CalendarClock, CheckCircle2, PlusCircle, Sparkles, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { RecheckSuggestion } from "@/lib/reminder-suggestions";
 
 type Reminder = {
   id: string;
@@ -19,6 +20,7 @@ type Reminder = {
 
 type Props = {
   initialReminders: Reminder[];
+  initialSuggestions?: RecheckSuggestion[];
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -53,8 +55,10 @@ function dueDateLabel(dueDate: string, today: string) {
   return dueDate;
 }
 
-export function RemindersClient({ initialReminders }: Props) {
+export function RemindersClient({ initialReminders, initialSuggestions = [] }: Props) {
   const [reminders, setReminders] = useState<Reminder[]>(initialReminders);
+  const [suggestions, setSuggestions] = useState<RecheckSuggestion[]>(initialSuggestions);
+  const [addingKey, setAddingKey] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<"recheck" | "annual_physical" | "medication" | "custom">("recheck");
   const [dueDate, setDueDate] = useState("");
@@ -64,6 +68,36 @@ export function RemindersClient({ initialReminders }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const today = new Date().toISOString().slice(0, 10);
+
+  async function handleAcceptSuggestion(s: RecheckSuggestion) {
+    setAddingKey(s.dedupeKey);
+    try {
+      const res = await fetch("/api/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: s.title,
+          kind: s.kind,
+          dueDate: s.dueDate,
+          note: s.note,
+          relatedMetricId: s.relatedMetricId ?? undefined,
+          relatedDocumentId: s.relatedDocumentId ?? undefined,
+        }),
+      });
+      if (!res.ok) throw new Error("添加失败");
+      const created = (await res.json()) as Reminder;
+      setReminders((prev) => [created, ...prev]);
+      setSuggestions((prev) => prev.filter((x) => x.dedupeKey !== s.dedupeKey));
+    } catch {
+      // 失败时保留建议，让用户重试
+    } finally {
+      setAddingKey(null);
+    }
+  }
+
+  function dismissSuggestion(key: string) {
+    setSuggestions((prev) => prev.filter((x) => x.dedupeKey !== key));
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -112,6 +146,48 @@ export function RemindersClient({ initialReminders }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* 异常指标复查建议 */}
+      {suggestions.length > 0 && (
+        <div className="rounded-xl border border-[#c8ddd2] bg-[linear-gradient(135deg,#eef4f0,#e6f0ea)] p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Sparkles className="size-4 text-[var(--hs-primary-strong)]" aria-hidden="true" />
+            <p className="text-sm font-semibold text-[var(--hs-primary-strong)]">
+              根据异常指标，建议复查 {suggestions.length} 项
+            </p>
+          </div>
+          <div className="space-y-2">
+            {suggestions.map((s) => (
+              <div
+                key={s.dedupeKey}
+                className="flex items-center gap-3 rounded-lg bg-white/70 px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[var(--hs-text)]">{s.title}</p>
+                  <p className="mt-0.5 truncate text-xs text-[var(--hs-muted)]">
+                    建议到期 {s.dueDate} · {s.note}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleAcceptSuggestion(s)}
+                  disabled={addingKey === s.dedupeKey}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--hs-primary-strong)] px-3 text-xs font-semibold text-white transition-colors hover:bg-[var(--hs-primary)] disabled:opacity-40"
+                >
+                  <PlusCircle className="size-3.5" aria-hidden="true" />
+                  {addingKey === s.dedupeKey ? "添加中..." : "添加"}
+                </button>
+                <button
+                  onClick={() => dismissSuggestion(s.dedupeKey)}
+                  title="忽略此建议"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-[var(--hs-muted)] transition-colors hover:bg-[var(--hs-hover)] hover:text-[var(--hs-text)]"
+                >
+                  <X className="size-3.5" aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 新建表单 */}
       <div className="hs-card p-5">
         <h2 className="hs-heading mb-4 text-lg">新建提醒</h2>

@@ -1,6 +1,6 @@
 import { db } from "@/db/index";
 import { measurements, metricCatalog, documents } from "@/db/schema";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, inArray } from "drizzle-orm";
 import { generateStructured } from "@/lib/llm";
 import { z } from "zod";
 
@@ -35,8 +35,9 @@ export type InsightResult = z.infer<typeof InsightSchema>;
 
 export async function GET() {
   // 拉取所有测量值
-  const rows = await db
+  const allRows = await db
     .select({
+      metricId: measurements.metricId,
       rawName: measurements.rawName,
       value: measurements.value,
       unit: measurements.unit,
@@ -52,16 +53,24 @@ export async function GET() {
     .leftJoin(metricCatalog, eq(measurements.metricId, metricCatalog.id))
     .orderBy(asc(measurements.measuredAt));
 
-  if (rows.length === 0) {
+  if (allRows.length === 0) {
     return Response.json({ error: "no_data" }, { status: 404 });
   }
 
-  // 文档摘要（来源和日期）
+  // 收敛到"每个指标最新一次"，避免同一指标历次记录刷屏并撑爆上下文。
+  const latestByMetric = new Map<string, (typeof allRows)[number]>();
+  for (const row of allRows) {
+    latestByMetric.set(row.metricId ?? `raw:${row.rawName}`, row);
+  }
+  const rows = Array.from(latestByMetric.values());
+
+  // 文档摘要（来源和日期）：仅取与这些指标相关的单据
   const docIds = [...new Set(rows.map((r) => r.documentId).filter(Boolean))] as string[];
   const docRows = docIds.length
     ? await db
         .select({ id: documents.id, institution: documents.institution, measuredAt: documents.measuredAt, documentType: documents.documentType })
         .from(documents)
+        .where(inArray(documents.id, docIds))
     : [];
 
   const docContext = docRows
