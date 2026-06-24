@@ -46,6 +46,7 @@ type DocumentImportJobDeps = {
   extractFromOcr?: (ocrText: string) => Promise<ExtractionResult>;
   recordPipelineRun?: (input: PipelineRunInput) => Promise<unknown>;
   resolveMetric?: (rawName: string) => Promise<MetricResolution>;
+  indexDocumentChunks?: (documentId: string) => Promise<void>;
   nowMs?: () => number;
 };
 
@@ -104,6 +105,7 @@ export async function runDocumentImportJob(
     extractFromOcr = defaultExtractFromOcr,
     recordPipelineRun = defaultRecordPipelineRun,
     resolveMetric,
+    indexDocumentChunks = indexDocument,
     nowMs = Date.now,
   }: DocumentImportJobDeps = {}
 ): Promise<DocumentImportJobResult> {
@@ -212,7 +214,7 @@ export async function runDocumentImportJob(
     ocrJson,
   });
 
-  indexDocument(input.documentId).catch((err) =>
+  indexDocumentChunks(input.documentId).catch((err) =>
     console.error("[index-document] 向量索引失败，可稍后通过回填脚本恢复:", err)
   );
 

@@ -78,6 +78,7 @@ describe("document import job", () => {
       },
       {
         db,
+        indexDocumentChunks: async () => {},
         uploadsDir: "/uploads-root",
         makeRunId: () => "run-1",
         makeMeasurementId: () => "measurement-1",
@@ -166,6 +167,7 @@ describe("document import job", () => {
       },
       {
         db,
+        indexDocumentChunks: async () => {},
         parseImage: async () => {
           throw new Error("parse should not run");
         },
@@ -191,6 +193,7 @@ describe("document import job", () => {
       },
       {
         db,
+        indexDocumentChunks: async () => {},
         uploadsDir: "/uploads-root",
         makeRunId: () => "run-allergy-level",
         makeMeasurementId: () => "measurement-allergy-level",
@@ -238,6 +241,7 @@ describe("document import job", () => {
       },
       {
         db,
+        indexDocumentChunks: async () => {},
         uploadsDir: "/uploads-root",
         parseImage: async () => ({
           markdown: "ALT 42 U/L",
@@ -283,6 +287,7 @@ describe("document import job", () => {
         },
         {
           db,
+          indexDocumentChunks: async () => {},
           uploadsDir: "/uploads-root",
           makeRunId: () => "run-ocr-error",
           parseImage: async () => {
@@ -315,6 +320,7 @@ describe("document import job", () => {
         },
         {
           db,
+          indexDocumentChunks: async () => {},
           makeRunId: () => "run-llm-error",
           parseImage: async () => ({
             markdown: "ALT 42 U/L",
